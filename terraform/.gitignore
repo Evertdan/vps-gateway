@@ -1,0 +1,11 @@
+# Ignore sensitive files
+terraform.tfstate
+terraform.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+!terraform.tfvars.example
+crash.log
+*.pem
+*.key
+.env

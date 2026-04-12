@@ -1,0 +1,214 @@
+name: Manage Projects - VPS Gateway
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Acción a realizar'
+        required: true
+        type: choice
+        options:
+          - list
+          - delete
+          - backup
+          - verify
+      project_name:
+        description: 'Nombre del proyecto (requerido para delete)'
+        required: false
+        type: string
+
+env:
+  VPS_IP: 195.26.244.180
+  VPS_USER: usuario
+
+jobs:
+  # ============================================
+  # Listar Proyectos
+  # ============================================
+  list:
+    name: Listar Proyectos
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'list'
+    
+    steps:
+      - name: Setup SSH Key
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ env.VPS_IP }} >> ~/.ssh/known_hosts
+
+      - name: List Projects
+        run: |
+          echo "📋 Listando proyectos en VPS..."
+          ssh -o StrictHostKeyChecking=no \
+            ${{ env.VPS_USER }}@${{ env.VPS_IP }} \
+            "sudo /opt/projects/scripts/list-projects.sh --format=table || cat /opt/projects/registry.json | python3 -m json.tool"
+
+      - name: List SSL Certificates
+        run: |
+          echo "🔒 Certificados SSL:"
+          ssh -o StrictHostKeyChecking=no \
+            ${{ env.VPS_USER }}@${{ env.VPS_IP }} \
+            "sudo certbot certificates 2>/dev/null | grep -E '(Certificate Name|Domains|Expiry)' || echo 'No certificates found'"
+
+      - name: List Nginx Sites
+        run: |
+          echo "🌐 Sitios Nginx habilitados:"
+          ssh -o StrictHostKeyChecking=no \
+            ${{ env.VPS_USER }}@${{ env.VPS_IP }} \
+            "ls -la /etc/nginx/sites-enabled/ | grep -v total"
+
+  # ============================================
+  # Eliminar Proyecto
+  # ============================================
+  delete:
+    name: Eliminar Proyecto
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'delete'
+    
+    steps:
+      - name: Validate Input
+        run: |
+          if [[ -z "${{ github.event.inputs.project_name }}" ]]; then
+            echo "❌ Debes especificar --project-name para eliminar"
+            exit 1
+          fi
+
+      - name: Setup SSH Key
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ env.VPS_IP }} >> ~/.ssh/known_hosts
+
+      - name: Confirm Deletion
+        run: |
+          echo "⚠️  ATENCIÓN: Estás a punto de eliminar el proyecto: ${{ github.event.inputs.project_name }}"
+          echo "Esto eliminará:"
+          echo "  - Configuración VPN (CCD)"
+          echo "  - Registros DNS (manual)"
+          echo "  - Certificado SSL"
+          echo "  - Configuración Nginx"
+          echo ""
+          echo "Para confirmar, ejecuta este workflow nuevamente con el mismo nombre."
+          
+          # Aquí se podría agregar una verificación de 2FA o confirmación
+
+      - name: Delete Project
+        run: |
+          PROJECT_NAME="${{ github.event.inputs.project_name }}"
+          
+          echo "🗑️  Eliminando proyecto: $PROJECT_NAME"
+          
+          ssh -o StrictHostKeyChecking=no \
+            ${{ env.VPS_USER }}@${{ env.VPS_IP }} \
+            "sudo /opt/projects/scripts/delete-project.sh --project=$PROJECT_NAME --force"
+
+      - name: Cleanup Complete
+        run: |
+          echo "✅ Proyecto eliminado"
+          echo "Nota: Los registros DNS deben eliminarse manualmente de Route 53"
+
+  # ============================================
+  # Backup
+  # ============================================
+  backup:
+    name: Crear Backup
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'backup'
+    
+    steps:
+      - name: Setup SSH Key
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ env.VPS_IP }} >> ~/.ssh/known_hosts
+
+      - name: Create Backup
+        run: |
+          echo "💾 Creando backup..."
+          
+          ssh -o StrictHostKeyChecking=no \
+            ${{ env.VPS_USER }}@${{ env.VPS_IP }} \
+            "sudo /home/usuario/vpn-scripts/vpn-backup.sh --output=/tmp/backup"
+
+      - name: Download Backup
+        run: |
+          BACKUP_FILE=$(ssh -o StrictHostKeyChecking=no ${{ env.VPS_USER }}@${{ env.VPS_IP }} "ls -t /home/usuario/vpn-backups/*.tar.gz 2>/dev/null | head -1")
+          
+          if [[ -n "$BACKUP_FILE" ]]; then
+            scp -o StrictHostKeyChecking=no \
+              ${{ env.VPS_USER }}@${{ env.VPS_IP }}:$BACKUP_FILE \
+              /tmp/vpn-backup-$(date +%Y%m%d).tar.gz
+            
+            echo "✅ Backup descargado"
+          else
+            echo "❌ No se encontró backup"
+            exit 1
+          fi
+
+      - name: Upload Backup Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpn-backup-$(date +%Y%m%d)
+          path: /tmp/vpn-backup-*.tar.gz
+
+  # ============================================
+  # Verificar Estado
+  # ============================================
+  verify:
+    name: Verificar Estado del Sistema
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'verify'
+    
+    steps:
+      - name: Setup SSH Key
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ env.VPS_IP }} >> ~/.ssh/known_hosts
+
+      - name: System Health Check
+        run: |
+          echo "🔍 Verificando estado del sistema..."
+          
+          ssh -o StrictHostKeyChecking=no ${{ env.VPS_USER }}@${{ env.VPS_IP }} << 'EOF'
+            echo "=== Servicios ==="
+            systemctl is-active nginx || echo "❌ Nginx"
+            systemctl is-active acme-dns || echo "❌ acme-dns"
+            docker ps | grep openvpn || echo "❌ OpenVPN"
+            
+            echo ""
+            echo "=== Puertos ==="
+            ss -tlnp | grep -E ':(80|443|1194|8444)'
+            
+            echo ""
+            echo "=== Disco ==="
+            df -h | grep -E '(Filesystem|/dev/)'
+            
+            echo ""
+            echo "=== Memory ==="
+            free -h
+          EOF
+
+      - name: Check Certificates Expiry
+        run: |
+          echo "📅 Vigencia de certificados:"
+          ssh -o StrictHostKeyChecking=no \
+            ${{ env.VPS_USER }}@${{ env.VPS_IP }} \
+            "sudo certbot certificates 2>/dev/null | grep -E '(Expiry|Domains)' || echo 'No certificates'"

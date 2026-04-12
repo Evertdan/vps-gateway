@@ -1,0 +1,69 @@
+# Production Configuration
+# Copy this file to terraform.tfvars and customize
+
+environment    = "production"
+domain         = "dgetahgo.edu.mx"
+server_ip      = "195.26.244.180"
+hosted_zone_id = "Z0748356URLST7BWNN9D"
+
+subdomains = {
+  n8n = {
+    name    = "n8n"
+    type    = "A"
+    ttl     = 300
+    records = ["195.26.244.180"]
+  }
+  
+  pbx = {
+    name    = "pbx"
+    type    = "A"
+    ttl     = 300
+    records = ["195.26.244.180"]
+  }
+  
+  pve = {
+    name    = "pve"
+    type    = "A"
+    ttl     = 300
+    records = ["195.26.244.180"]
+  }
+  
+  test = {
+    name    = "test"
+    type    = "A"
+    ttl     = 3600
+    records = ["195.26.244.180"]
+  }
+  
+  vps1 = {
+    name    = "vps1"
+    type    = "A"
+    ttl     = 86400
+    records = ["195.26.244.180"]
+  }
+  
+  webmail = {
+    name    = "webmail"
+    type    = "A"
+    ttl     = 300
+    records = ["195.26.244.180"]
+  }
+  
+  # ACME-DNS infrastructure
+  auth = {
+    name    = "auth"
+    type    = "A"
+    ttl     = 300
+    records = ["195.26.244.180"]
+  }
+  
+  ns1_auth = {
+    name    = "ns1.auth"
+    type    = "A"
+    ttl     = 300
+    records = ["195.26.244.180"]
+  }
+}
+
+# ACME challenge CNAMEs (managed automatically by scripts)
+# These would be created dynamically

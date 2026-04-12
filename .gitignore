@@ -1,0 +1,56 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars.example
+.terraform/
+.terraform.lock.hcl
+
+# SSH Keys
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+usuario_vps1_key
+
+# VPN Configs
+*.ovpn
+
+# Logs
+*.log
+
+# Node modules
+node_modules/
+
+# Backup files
+*.bak
+*.backup
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+secrets/
+credentials.json
+aws-credentials*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Archives
+*.tar.gz
+*.zip
