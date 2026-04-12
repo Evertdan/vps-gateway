@@ -5,14 +5,14 @@
 
 terraform {
   required_version = ">= 1.0"
-  
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
   }
-  
+
   # Backend remoto (opcional - descomentar para usar S3)
   # backend "s3" {
   #   bucket         = "dgetahgo-terraform-state"
@@ -25,7 +25,7 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
-  
+
   default_tags {
     tags = {
       Project     = "dgetahgo"
@@ -109,9 +109,9 @@ locals {
     { for k, v in aws_route53_record.subdomains : k => v.fqdn },
     { for k, v in aws_route53_record.acme_challenges : k => v.fqdn },
     {
-      auth_a    = aws_route53_record.auth_a.fqdn
-      ns1_auth  = aws_route53_record.ns1_auth_a.fqdn
-      auth_ns   = aws_route53_record.auth_ns.fqdn
+      auth_a   = aws_route53_record.auth_a.fqdn
+      ns1_auth = aws_route53_record.ns1_auth_a.fqdn
+      auth_ns  = aws_route53_record.auth_ns.fqdn
     }
   )
 }

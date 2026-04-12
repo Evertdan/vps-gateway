@@ -39,7 +39,7 @@ jobs:
         uses: ludeeus/action-shellcheck@master
         with:
           scandir: './scripts'
-          severity: warning
+          severity: error
 
       - name: Lint YAML
         uses: ibiqlik/action-yamllint@v3

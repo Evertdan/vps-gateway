@@ -20,8 +20,8 @@ variable "server_ip" {
 variable "projects" {
   description = "Map of projects to create"
   type = map(object({
-    name    = string
-    ttl     = optional(number, 300)
+    name = string
+    ttl  = optional(number, 300)
   }))
   default = {}
 }

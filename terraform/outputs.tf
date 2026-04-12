@@ -50,7 +50,7 @@ output "project_summary" {
 
 output "next_steps" {
   description = "Instructions for next steps"
-  value = <<EOT
+  value       = <<EOT
 
 ✅ DNS Records Created Successfully!
 
