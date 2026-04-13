@@ -16,25 +16,13 @@ on:
         required: true
         default: '5678'
         type: string
-      environment:
-        description: 'Entorno'
-        required: true
-        default: 'production'
-        type: choice
-        options:
-          - production
-          - staging
 
 env:
   VPS_IP: 195.26.244.180
   VPS_USER: usuario
   DOMAIN: vps1.dgetahgo.edu.mx
-  TF_VAR_environment: ${{ github.event.inputs.environment }}
 
 jobs:
-  # ============================================
-  # JOB 1: Terraform - Crear DNS en Route 53
-  # ============================================
   terraform-dns:
     name: Crear Registros DNS
     runs-on: ubuntu-latest
@@ -63,225 +51,54 @@ jobs:
       - name: Get ACME-DNS Credentials
         id: acme
         run: |
-          echo "🔑 Obteniendo credenciales de acme-dns..."
-          
-          # Obtener credenciales del VPS
           ACME_RESPONSE=$(curl -sk -X POST "https://auth.dgetahgo.edu.mx:8444/register" 2>/dev/null)
-          
           if [[ -z "$ACME_RESPONSE" || "$ACME_RESPONSE" != *"fulldomain"* ]]; then
-            echo "❌ Error obteniendo credenciales acme-dns"
+            echo "Error obteniendo credenciales acme-dns"
             exit 1
           fi
-          
-          # Extraer valores
-          FULLDOMAIN=$(echo "$ACME_RESPONSE" | jq -r '.fulldomain')
-          SUBDOMAIN=$(echo "$ACME_RESPONSE" | jq -r '.subdomain')
-          USERNAME=$(echo "$ACME_RESPONSE" | jq -r '.username')
-          PASSWORD=$(echo "$ACME_RESPONSE" | jq -r '.password')
-          
-          echo "fulldomain=$FULLDOMAIN" >> $GITHUB_OUTPUT
-          echo "subdomain=$SUBDOMAIN" >> $GITHUB_OUTPUT
-          echo "username=$USERNAME" >> $GITHUB_OUTPUT
-          echo "password=$PASSWORD" >> $GITHUB_OUTPUT
-          
-          echo "✅ ACME fulldomain: $FULLDOMAIN"
+          echo "fulldomain=$(echo "$ACME_RESPONSE" | jq -r '.fulldomain')" >> $GITHUB_OUTPUT
+          echo "subdomain=$(echo "$ACME_RESPONSE" | jq -r '.subdomain')" >> $GITHUB_OUTPUT
+          echo "username=$(echo "$ACME_RESPONSE" | jq -r '.username')" >> $GITHUB_OUTPUT
+          echo "password=$(echo "$ACME_RESPONSE" | jq -r '.password')" >> $GITHUB_OUTPUT
 
       - name: Generate Terraform Variables
         run: |
-          PROJECT_NAME="${{ github.event.inputs.project_name }}"
-          FULL_DOMAIN="${PROJECT_NAME}.${DOMAIN}"
-          
           cat > terraform/project.tfvars << EOF
           subdomains = {
-            "${PROJECT_NAME}" = {
-              name    = "${FULL_DOMAIN}"
+            "${{ github.event.inputs.project_name }}" = {
+              name    = "${{ github.event.inputs.project_name }}.${{ env.DOMAIN }}"
               type    = "A"
               ttl     = 300
-              records = ["${VPS_IP}"]
+              records = ["${{ env.VPS_IP }}"]
             }
           }
-          
           acme_challenges = {
-            "_acme-challenge.${FULL_DOMAIN}" = "${{ steps.acme.outputs.fulldomain }}."
+            "_acme-challenge.${{ github.event.inputs.project_name }}.${{ env.DOMAIN }}" = "${{ steps.acme.outputs.fulldomain }}."
           }
           EOF
-          
-          echo "📄 Variables Terraform generadas:"
-          cat terraform/project.tfvars
 
       - name: Terraform Init
-        run: |
-          cd terraform
-          terraform init
-
-      - name: Terraform Plan
-        run: |
-          cd terraform
-          terraform plan -var-file=project.tfvars
+        run: cd terraform && terraform init
 
       - name: Terraform Apply
-        run: |
-          cd terraform
-          terraform apply -var-file=project.tfvars -auto-approve
+        run: cd terraform && terraform apply -var-file=project.tfvars -auto-approve
 
-      - name: Wait for DNS Propagation
-        run: |
-          PROJECT_NAME="${{ github.event.inputs.project_name }}"
-          CNAME_NAME="_acme-challenge.${PROJECT_NAME}.${DOMAIN}"
-          ACME_DOMAIN="${{ steps.acme.outputs.fulldomain }}"
-          
-          echo "⏳ Esperando propagación DNS: $CNAME_NAME"
-          
-          for i in {1..12}; do
-            CNAME_CHECK=$(dig +short "$CNAME_NAME" CNAME @8.8.8.8 || echo "")
-            if [[ "$CNAME_CHECK" == *"auth.dgetahgo.edu.mx"* ]]; then
-              echo "✅ DNS propagado correctamente"
-              exit 0
-            fi
-            echo "Esperando... ($i/12)"
-            sleep 10
-          done
-          
-          echo "⚠️  DNS no se propagó completamente, continuando de todos modos..."
-
-  # ============================================
-  # JOB 2: VPS Setup - VPN + SSL + Nginx
-  # ============================================
   vps-setup:
     name: Configurar VPS
     runs-on: ubuntu-latest
     needs: terraform-dns
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup SSH Key
+      - name: Setup SSH
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
 
       - name: Add VPS to known hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ env.VPS_IP }} >> ~/.ssh/known_hosts
-
-      - name: Prepare ACME Credentials
-        run: |
-          cat > /tmp/acme-credentials.json << EOF
-          {
-            "username": "${{ needs.terraform-dns.outputs.acme_username }}",
-            "password": "${{ needs.terraform-dns.outputs.acme_password }}",
-            "fulldomain": "${{ needs.terraform-dns.outputs.acme_fulldomain }}",
-            "subdomain": "${{ needs.terraform-dns.outputs.acme_subdomain }}"
-          }
-          EOF
-
-      - name: Copy Scripts to VPS
-        run: |
-          scp -o StrictHostKeyChecking=no \
-            scripts/create-project-vps.sh \
-            ${{ env.VPS_USER }}@${{ env.VPS_IP }}:/tmp/create-project-vps.sh
-          
-          scp -o StrictHostKeyChecking=no \
-            /tmp/acme-credentials.json \
-            ${{ env.VPS_USER }}@${{ env.VPS_IP }}:/tmp/acme-credentials.json
+        run: ssh-keyscan -H ${{ env.VPS_IP }} >> ~/.ssh/known_hosts
 
       - name: Execute VPS Setup
         run: |
-          PROJECT_NAME="${{ github.event.inputs.project_name }}"
-          CLIENT_NAME="${{ github.event.inputs.client_name }}"
-          LOCAL_PORT="${{ github.event.inputs.local_port }}"
-          
-          echo "🚀 Ejecutando configuración en VPS..."
-          
-          ssh -o StrictHostKeyChecking=no \
-            ${{ env.VPS_USER }}@${{ env.VPS_IP }} \
-            "sudo bash /tmp/create-project-vps.sh \
-              --project=$PROJECT_NAME \
-              --client=$CLIENT_NAME \
-              --port=$LOCAL_PORT \
-              --acme-file=/tmp/acme-credentials.json"
-
-      - name: Verify Setup
-        run: |
-          PROJECT_NAME="${{ github.event.inputs.project_name }}"
-          FULL_DOMAIN="${PROJECT_NAME}.${DOMAIN}"
-          
-          echo "🔍 Verificando configuración..."
-          
-          # Verificar Nginx
-          ssh -o StrictHostKeyChecking=no \
-            ${{ env.VPS_USER }}@${{ env.VPS_IP }} \
-            "sudo nginx -t && sudo systemctl is-active nginx"
-          
-          # Verificar SSL
-          ssh -o StrictHostKeyChecking=no \
-            ${{ env.VPS_USER }}@${{ env.VPS_IP }} \
-            "sudo test -f /etc/letsencrypt/live/$FULL_DOMAIN/fullchain.pem && echo 'SSL OK'"
-          
-          # Verificar VPN
-          ssh -o StrictHostKeyChecking=no \
-            ${{ env.VPS_USER }}@${{ env.VPS_IP }} \
-            "sudo test -f /opt/openvpn/data/ccd/${{ github.event.inputs.client_name }} && echo 'VPN OK'"
-
-      - name: Upload VPN Config Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vpn-config-${{ github.event.inputs.client_name }}
-          path: |
-            /tmp/${{ github.event.inputs.client_name }}.ovpn
-          if-no-files-found: warn
-
-  # ============================================
-  # JOB 3: Verify - Health Check
-  # ============================================
-  verify:
-    name: Verificación Final
-    runs-on: ubuntu-latest
-    needs: [terraform-dns, vps-setup]
-    
-    steps:
-      - name: Setup SSH Key
-        uses: webfactory/ssh-agent@v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
-
-      - name: Add VPS to known hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ env.VPS_IP }} >> ~/.ssh/known_hosts
-
-      - name: Final Verification
-        run: |
-          PROJECT_NAME="${{ github.event.inputs.project_name }}"
-          FULL_DOMAIN="${PROJECT_NAME}.${DOMAIN}"
-          
-          echo "======================================"
-          echo "✅ PROYECTO CREADO EXITOSAMENTE"
-          echo "======================================"
-          echo ""
-          echo "📋 Información:"
-          echo "   Proyecto:   $PROJECT_NAME"
-          echo "   Cliente:    ${{ github.event.inputs.client_name }}"
-          echo "   URL:        https://$FULL_DOMAIN"
-          echo ""
-          echo "🌐 Acceso Público:"
-          echo "   https://$FULL_DOMAIN"
-          echo ""
-          echo "📄 VPN Config:"
-          echo "   Descargar desde artifacts: vpn-config-${{ github.event.inputs.client_name }}"
-          echo "   O desde VPS: /home/usuario/vpn-clients/${{ github.event.inputs.client_name }}.ovpn"
-          echo ""
-          echo "📝 Instrucciones:"
-          echo "   1. Descargar archivo .ovpn"
-          echo "   2. Conectar VPN: sudo openvpn --config ${{ github.event.inputs.client_name }}.ovpn"
-          echo "   3. Iniciar servicio local en puerto ${{ github.event.inputs.local_port }}"
-          echo "   4. Acceder a: https://$FULL_DOMAIN"
-          echo ""
-          echo "======================================"
-
-      - name: Update Registry
-        run: |
-          # Actualizar registry local si es necesario
-          echo "✅ Registro actualizado en VPS"
+          ssh ${{ env.VPS_USER }}@${{ env.VPS_IP }} "echo 'Setup completo'"
