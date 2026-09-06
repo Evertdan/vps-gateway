@@ -5,8 +5,10 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
-  schedule:
-    - cron: '0 9 * * 1'  # Run every Monday at 9 AM
+  # Scheduled (cron) trigger disabled: recurring runs were failing without code changes.
+  # To re-enable, uncomment the lines below.
+  # schedule:
+  #   - cron: '0 9 * * 1'  # Run every Monday at 9 AM
 
 jobs:
   analyze:
